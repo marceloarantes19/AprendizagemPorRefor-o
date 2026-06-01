@@ -225,12 +225,16 @@ if menu == "1. Treinamento e Exportação":
             agente_como = 1 if epoch % 2 != 0 else -1
             adversario = -1 if agente_como == 1 else 1
             vez = 1 # 1 (X) sempre começa
+            primeira_jogada = True
             
             while not env.done:
                 avail = env.available_actions()
                 state_current = env.get_state()
                 
-                if vez == agente_como:
+                if primeira_jogada:
+                    action_current = random.choice(avail)
+                    primeira_jogada = False
+                elif vez == agente_como:
                     action_current = agent.choose_action(state_current, avail, explore=True, player=agente_como)
                 else:
                     action_current = random_opponent.choose_action(avail)
