@@ -367,11 +367,15 @@ elif menu == "3. Arena de Batalha Autônoma":
                 match_states = [list(env.board)]
                 
                 vez = 1
+                primeira_jogada = True
                 while not env.done:
                     avail = env.available_actions()
                     state_str = env.get_state()
                     
-                    if vez == simbolo_a:
+                    if primeira_jogada:
+                        action = random.choice(avail)
+                        primeira_jogada = False
+                    elif vez == simbolo_a:
                         action = agent_a.choose_action(state_str, avail, explore=False, player=vez)
                     else:
                         action = agent_b.choose_action(state_str, avail, explore=False, player=vez)
