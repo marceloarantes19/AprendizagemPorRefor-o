@@ -81,35 +81,44 @@ def valor(x):
 
 def partidaNormal(tipo, tQ):
 	resposta = "S"
+	partida_count = 0
 	while resposta == "S" or resposta == "s":
 		p = "000000000"
 		tela(p)
-		i = 0
-		k = 0
 		v = False
-		while i<9:
-			i = i + 1
-			p = jogada(p)
-			tela(p)
-			if ganhou(p, "1"):
-				v = True
-				print("Você Ganhou!")
-				break
-			if i<9:
-				i = i+1
-				if tipo == 1:
-					p, k=jogaAleatorio(p, "2")
-				else:
-					p, k=jogaComTQ(p, "2", tQ[getIndEst(p)])
+		# Inverte quem comeca a cada partida
+		vez_do_humano = (partida_count % 2 == 0)
+		simbolo_humano = "1" if vez_do_humano else "2"
+		simbolo_agente = "2" if vez_do_humano else "1"
+		vez = "1" # 1 sempre começa (X)
+
+		while "0" in p:
+			if vez == simbolo_humano:
+				print(f"Sua vez ({simbolo_humano} - {valor(simbolo_humano)}):")
+				p = jogada(p)
 				tela(p)
-				if ganhou(p, "2"):
+				if ganhou(p, simbolo_humano):
+					v = True
+					print("Você Ganhou!")
+					break
+				vez = simbolo_agente
+			else:
+				print(f"Vez do computador ({simbolo_agente} - {valor(simbolo_agente)}):")
+				if tipo == 1:
+					p, k = jogaAleatorio(p, simbolo_agente)
+				else:
+					p, k = jogaComTQ(p, simbolo_agente, tQ[getIndEst(p)])
+				tela(p)
+				if ganhou(p, simbolo_agente):
 					v = True
 					print("Você Perdeu!")
 					break
+				vez = simbolo_humano
 		if v == False:
 			print("Deu velha!")
 		print(p)
 		resposta = input("Deseja jogar novamente [S] (sim) e [N] (não): ")
+		partida_count += 1
 
 def geraTabelaQ():
 	tQ = []
@@ -159,38 +168,43 @@ def treina(epocas, tQ):
         estadoAcao=[]
         usaTQ = True if random.random() > epsilon else False # Treina de maneira aleatória ou usa a Tabela Q
         p = "000000000"
-        i = 0
         ref = refEmpate # Reforço para empate
-        while i<9:
-            i = i + 1
+        
+        # Inverte quem o agente representa a cada partida
+        agente_como = "1" if t % 2 == 0 else "2"
+        adversario = "2" if agente_como == "1" else "1"
+        vez = "1" # 1 sempre começa (X)
+
+        while "0" in p:
             ea = p
-            if not usaTQ: # or t < 1000:
-                p, jgd = jogaAleatorio(p, "1")
-            else: 
-                p, jgd = jogaComTQ(p, "1", tQ[getIndEst(p)])
-            estAct = [getIndEst(ea), jgd]
-            estadoAcao.append(estAct)
-            if ganhou(p, "1"):
-                ref = refDerrota # Reforço para derrota do agente
-                break
-            if i<9:
-                i = i+1
-                ea = p
-                if not usaTQ or t<1000:
-                    p, jgd = jogaAleatorio(p, "2")
+            if vez == agente_como:
+                if not usaTQ:
+                    p, jgd = jogaAleatorio(p, agente_como)
                 else: 
-                    p, jgd = jogaComTQ(p, "2", tQ[getIndEst(p)])
-                estAct = [getIndEst(ea), jgd]
+                    p, jgd = jogaComTQ(p, agente_como, tQ[getIndEst(p)])
+                estAct = [getIndEst(ea), jgd, agente_como]
                 estadoAcao.append(estAct)
-                if ganhou(p, "2"):
-                    ref = refVitoria # Reforço para vitória do agente
+                if ganhou(p, agente_como):
+                    ref = refDerrota if agente_como == "1" else refVitoria
                     break
-        cnt = 0
+                vez = adversario
+            else:
+                if not usaTQ:
+                    p, jgd = jogaAleatorio(p, adversario)
+                else: 
+                    p, jgd = jogaComTQ(p, adversario, tQ[getIndEst(p)])
+                estAct = [getIndEst(ea), jgd, adversario]
+                estadoAcao.append(estAct)
+                if ganhou(p, adversario):
+                    ref = refDerrota if adversario == "1" else refVitoria
+                    break
+                vez = agente_como
+                
         for l in estadoAcao:
-            cnt = cnt + 1
             i = l[0]
             j = l[1]
-            if (cnt % 2) == 1:
+            jogador = l[2]
+            if jogador == "1":
                 tQ[i][j] = tQ[i][j]+alpha*(ref+gamma*(min(tQ[i])-tQ[i][j]))
             else:
                 tQ[i][j] = tQ[i][j]+alpha*(ref+gamma*(max(tQ[i])-tQ[i][j]))

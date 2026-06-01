@@ -193,7 +193,7 @@ if menu == "1. Treinamento e Exportação":
         reward_draw = st.number_input("Reforço para Empate", value=0.0, step=1.0)
         reward_loss = st.number_input("Reforço para Derrota", value=0.0, step=1.0)
         
-        st.info("💡 **Dica Didática**: O agente que está aprendendo (Agente 2) jogará como 'O' contra um Agente Aleatório (Agente 1) que joga como 'X'.")
+        st.info("💡 **Dica Didática**: O agente treina alternando quem começa a partida (ora ele joga como X, ora como O) contra um Agente Aleatório.")
 
     if st.button("🚀 Iniciar Treinamento", type="primary"):
         env = TicTacToe()
@@ -221,31 +221,34 @@ if menu == "1. Treinamento e Exportação":
             env.reset()
             history = []
             
+            # Alterna quem o agente representa (1=X, -1=O)
+            agente_como = 1 if epoch % 2 != 0 else -1
+            adversario = -1 if agente_como == 1 else 1
+            vez = 1 # 1 (X) sempre começa
+            
             while not env.done:
-                # Jogador 1 (X)
                 avail = env.available_actions()
-                state_p1 = env.get_state()
+                state_current = env.get_state()
                 
-                action_p1 = random_opponent.choose_action(avail)
-                env.step(action_p1, player=1)
-                history.append((state_p1, action_p1, 1))
+                if vez == agente_como:
+                    action_current = agent.choose_action(state_current, avail, explore=True, player=agente_como)
+                else:
+                    action_current = random_opponent.choose_action(avail)
+                    
+                env.step(action_current, player=vez)
+                history.append((state_current, action_current, vez))
                 
-                if env.done: break
+                vez = adversario if vez == agente_como else agente_como
                 
-                # Jogador -1 (O)
-                avail = env.available_actions()
-                state_agent = env.get_state()
-                action_agent = agent.choose_action(state_agent, avail, explore=True, player=-1)
-                env.step(action_agent, player=-1)
-                history.append((state_agent, action_agent, -1))
-                
-            # Define o reforço (ref) do episódio (relativo ao Agente 'O')
-            if env.winner == -1:
+            # Define o reforço (ref) do episódio na visão absoluta da tabela Q
+            if env.winner == -1: # O venceu
                 ref = reward_win
-                wins += 1
-            elif env.winner == 1:
+                if agente_como == -1: wins += 1
+                else: losses += 1
+            elif env.winner == 1: # X venceu
                 ref = reward_loss
-                losses += 1
+                if agente_como == 1: wins += 1
+                else: losses += 1
             else:
                 ref = reward_draw
                 draws += 1
@@ -319,7 +322,7 @@ elif menu == "3. Arena de Batalha Autônoma":
     with col2:
         file_b = st.file_uploader("Upload Agente B (Jogador 'O')", type=['json'])
         
-    num_matches = st.selectbox("Quantidade de Partidas do Torneio", [5, 10, 20])
+    num_matches = st.selectbox("Quantidade de Partidas do Torneio", [5, 10, 15, 20, 25, 50, 75, 100, 200])
     
     # Função para renderizar o tabuleiro em HTML/CSS
     def render_board(board_array):
@@ -333,14 +336,7 @@ elif menu == "3. Arena de Batalha Autônoma":
 
     if st.button("⚔️ Iniciar Torneio", type="primary", disabled=(file_a is None or file_b is None)):
         if file_a and file_b:
-            # Inicializa a máquina de estados do torneio
             st.session_state.arena_active = True
-            st.session_state.current_match = 1
-            st.session_state.total_matches = num_matches
-            st.session_state.wins_a = 0
-            st.session_state.wins_b = 0
-            st.session_state.draws = 0
-            st.session_state.env = TicTacToe()
             
             agent_a = QLearningAgent()
             meta_a = agent_a.load_q_table(file_a.getvalue().decode("utf-8"))
@@ -350,92 +346,105 @@ elif menu == "3. Arena de Batalha Autônoma":
             meta_b = agent_b.load_q_table(file_b.getvalue().decode("utf-8"))
             st.session_state.agent_b = agent_b
             
-            if meta_a or meta_b:
-                with st.expander("ℹ️ Informações de Treinamento dos Agentes", expanded=False):
-                    c1, c2 = st.columns(2)
-                    if meta_a:
-                        c1.markdown(f"**Agente A (X):**  \nÉpocas: {meta_a['epochs']} | Alfa: {meta_a['alpha']}  \nVitória: {meta_a['reward_win']} | Empate: {meta_a['reward_draw']} | Derrota: {meta_a['reward_loss']}")
-                    if meta_b:
-                        c2.markdown(f"**Agente B (O):**  \nÉpocas: {meta_b['epochs']} | Alfa: {meta_b['alpha']}  \nVitória: {meta_b['reward_win']} | Empate: {meta_b['reward_draw']} | Derrota: {meta_b['reward_loss']}")
+            name_a = file_a.name.replace('.json', '')
+            name_b = file_b.name.replace('.json', '')
             
-            st.session_state.name_a = file_a.name.replace('.json', '')
-            st.session_state.name_b = file_b.name.replace('.json', '')
-            st.session_state.primeiro_movimento = True
-            st.session_state.match_over = False
-            st.session_state.tournament_over = False
+            wins_a = 0
+            wins_b = 0
+            draws = 0
+            
+            matches_history = []
+            
+            env = TicTacToe()
+            
+            for match_idx in range(1, num_matches + 1):
+                env.reset()
+                
+                agente_a_eh_x = (match_idx % 2 != 0)
+                simbolo_a = 1 if agente_a_eh_x else -1
+                simbolo_b = -1 if agente_a_eh_x else 1
+                
+                match_states = [list(env.board)]
+                
+                vez = 1
+                while not env.done:
+                    avail = env.available_actions()
+                    state_str = env.get_state()
+                    
+                    if vez == simbolo_a:
+                        action = agent_a.choose_action(state_str, avail, explore=False, player=vez)
+                    else:
+                        action = agent_b.choose_action(state_str, avail, explore=False, player=vez)
+                        
+                    env.step(action, player=vez)
+                    match_states.append(list(env.board))
+                    
+                    vez = -1 if vez == 1 else 1
+                    
+                if env.winner == simbolo_a:
+                    wins_a += 1
+                    winner_name = name_a
+                elif env.winner == simbolo_b:
+                    wins_b += 1
+                    winner_name = name_b
+                else:
+                    draws += 1
+                    winner_name = "Empate"
+                    
+                matches_history.append({
+                    "match_id": match_idx,
+                    "agente_a_eh_x": agente_a_eh_x,
+                    "states": match_states,
+                    "winner_name": winner_name
+                })
+                
+            st.session_state.wins_a = wins_a
+            st.session_state.wins_b = wins_b
+            st.session_state.draws = draws
+            st.session_state.matches_history = matches_history
+            st.session_state.name_a = name_a
+            st.session_state.name_b = name_b
             
             st.rerun()
 
-    # Se a arena estiver ativa, exibe a interface interativa jogada a jogada
+    # Se a arena estiver ativa, exibe o placar e o replay
     if st.session_state.get('arena_active', False):
         st.divider()
         
         # Placar
         col1, col2, col3 = st.columns(3)
-        col1.metric(f"Vitórias {st.session_state.name_a} (X)", st.session_state.wins_a)
+        col1.metric(f"Vitórias {st.session_state.name_a}", st.session_state.wins_a)
         col2.metric("Empates", st.session_state.draws)
-        col3.metric(f"Vitórias {st.session_state.name_b} (O)", st.session_state.wins_b)
+        col3.metric(f"Vitórias {st.session_state.name_b}", st.session_state.wins_b)
         
-        st.subheader(f"Partida {st.session_state.current_match} de {st.session_state.total_matches}")
+        st.divider()
+        st.subheader("📺 Replay das Partidas")
         
-        env = st.session_state.env
+        matches = st.session_state.matches_history
+        options = [f"Partida {m['match_id']} - Vencedor: {m['winner_name']}" for m in matches]
+        selected_option = st.selectbox("Escolha uma partida para assistir:", options)
         
-        # Desenha o tabuleiro atual
-        st.markdown(render_board(env.board), unsafe_allow_html=True)
+        selected_idx = options.index(selected_option)
+        match_data = matches[selected_idx]
         
-        if not env.done:
-            # Determina de quem é a vez baseado nas casas vazias
-            turn_player = 1 if env.board.count(0) % 2 != 0 else -1
-            current_name = st.session_state.name_a if turn_player == 1 else st.session_state.name_b
-            symbol = "X" if turn_player == 1 else "O"
-            
-            st.info(f"Vez de **{current_name} ({symbol})** jogar.")
-            
-            # Botão principal. Dica: Se focado (clicado), apertar 'Espaço' o ativa novamente
-            if st.button("▶️ Avançar Jogada (Pressione Espaço se focado)", type="primary", use_container_width=True):
-                avail = env.available_actions()
-                state_str = env.get_state()
-                agent = st.session_state.agent_a if turn_player == 1 else st.session_state.agent_b
-                
-                # Pequena aleatoriedade no primeiro movimento para evitar partidas sempre idênticas
-                if st.session_state.primeiro_movimento and turn_player == 1 and random.random() < 0.2:
-                    action = random.choice(avail)
-                else:
-                    action = agent.choose_action(state_str, avail, explore=False, player=turn_player)
-                    
-                env.step(action, player=turn_player)
-                st.session_state.primeiro_movimento = False
-                st.rerun()
-        else:
-            # A partida acabou
-            if env.winner == 1:
-                st.success(f"🎉 Vitória de {st.session_state.name_a}!")
-            elif env.winner == -1:
-                st.error(f"🎉 Vitória de {st.session_state.name_b}!")
+        agente_a_eh_x = match_data["agente_a_eh_x"]
+        states = match_data["states"]
+        
+        symbol_a = "X" if agente_a_eh_x else "O"
+        symbol_b = "O" if agente_a_eh_x else "X"
+        
+        st.info(f"Nesta partida: **{st.session_state.name_a}** jogou como '{symbol_a}' e **{st.session_state.name_b}** jogou como '{symbol_b}'.")
+        
+        step = st.slider("Avançar jogadas", 0, len(states) - 1, 0)
+        
+        board_to_render = states[step]
+        st.markdown(render_board(board_to_render), unsafe_allow_html=True)
+        
+        if step == len(states) - 1:
+            if match_data['winner_name'] == "Empate":
+                st.warning("Fim da Partida. Resultado: Empate")
             else:
-                st.warning("🤝 Empate!")
-                
-            if not st.session_state.match_over:
-                # Atualiza o placar apenas 1 vez quando a partida acaba
-                st.session_state.match_over = True
-                if env.winner == 1: st.session_state.wins_a += 1
-                elif env.winner == -1: st.session_state.wins_b += 1
-                else: st.session_state.draws += 1
-                st.rerun() # Recarrega para refletir o placar atualizado
-                
-            # Mostra próximo passo: ou Próxima Partida, ou Fim do Torneio
-            if st.session_state.current_match < st.session_state.total_matches:
-                if st.button("⏩ Próxima Partida", type="primary", use_container_width=True):
-                    st.session_state.env.reset()
-                    st.session_state.current_match += 1
-                    st.session_state.primeiro_movimento = True
-                    st.session_state.match_over = False
-                    st.rerun()
-            else:
-                st.info("🏁 Torneio Finalizado!")
-                if st.button("🔄 Iniciar Novo Torneio", use_container_width=True):
-                    st.session_state.arena_active = False
-                    st.rerun()
+                st.success(f"Fim da Partida. Vencedor: {match_data['winner_name']}")
 
 elif menu == "2. Jogar contra o Agente":
     st.header("🎮 Jogue contra o Agente")
@@ -455,10 +464,18 @@ elif menu == "2. Jogar contra o Agente":
         # Inicialização do estado do jogo na sessão do Streamlit
         if 'game_env' not in st.session_state:
             st.session_state.game_env = TicTacToe()
+            st.session_state.humano_comeca = True
+            
+        humano_comeca = st.session_state.humano_comeca
+        simbolo_humano = 1 if humano_comeca else -1
+        simbolo_agente = -1 if humano_comeca else 1
+        
+        str_simbolo_humano = 'X' if humano_comeca else 'O'
+        str_simbolo_agente = 'O' if humano_comeca else 'X'
         
         env = st.session_state.game_env
         
-        st.subheader(f"Você é o 'X' e o {agent_name} é o 'O'")
+        st.subheader(f"Você é o '{str_simbolo_humano}' e o {agent_name} é o '{str_simbolo_agente}'")
         st.markdown("""
         <style>
         div.stButton > button:first-child { 
@@ -500,28 +517,31 @@ elif menu == "2. Jogar contra o Agente":
                     
                     # Quando o usuário clica num botão
                     if col.button(text, key=f"cell_{i}", disabled=disabled, use_container_width=True):
-                        # Turno do Jogador (X)
-                        _, done, winner = env.step(i, player=1)
+                        # Turno do Humano
+                        _, done, winner = env.step(i, player=simbolo_humano)
+                        st.rerun() # Atualiza a tela para refletir a jogada
                         
-                        # Turno do Agente (O), se o jogo não acabou
-                        if not done:
-                            avail = env.available_actions()
-                            state_str = env.get_state()
-                            action = agent.choose_action(state_str, avail, explore=False, player=-1)
-                            _, done, winner = env.step(action, player=-1)
-                        
-                        st.rerun() # Atualiza a tela para refletir as jogadas
+        if not env.done:
+            vez_atual = 1 if env.board.count(0) % 2 != 0 else -1
+            if vez_atual == simbolo_agente:
+                # Turno do Agente
+                avail = env.available_actions()
+                state_str = env.get_state()
+                action = agent.choose_action(state_str, avail, explore=False, player=simbolo_agente)
+                _, done, winner = env.step(action, player=simbolo_agente)
+                st.rerun()
         
         st.divider()
         if env.done:
-            if env.winner == 1:
+            if env.winner == simbolo_humano:
                 st.success("🎉 Você venceu! (Ou o agente ainda precisa treinar mais 😅)")
-            elif env.winner == -1:
+            elif env.winner == simbolo_agente:
                 st.error("🤖 O Agente venceu! A máquina superou o criador.")
             else:
                 st.info("🤝 Empate! Belo jogo.")
                 
             if st.button("🔄 Jogar Novamente", type="primary"):
                 env.reset()
+                st.session_state.humano_comeca = not st.session_state.humano_comeca
                 st.rerun()
 
